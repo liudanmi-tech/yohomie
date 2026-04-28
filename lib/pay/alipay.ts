@@ -1,4 +1,5 @@
 import { AlipaySdk } from 'alipay-sdk'
+import { createPrivateKey, createPublicKey } from 'node:crypto'
 
 type AlipayEnv = {
   appId: string
@@ -39,6 +40,34 @@ function toPemCandidates(key: string, keyType: 'private' | 'public'): string[] {
   return [toPem(normalized, 'PUBLIC KEY'), toPem(normalized, 'RSA PUBLIC KEY')]
 }
 
+function normalizePrivateKeyForNode(raw: string): string {
+  const candidates = toPemCandidates(raw, 'private')
+  let lastError: unknown = null
+  for (const candidate of candidates) {
+    try {
+      const parsed = createPrivateKey(candidate)
+      return parsed.export({ type: 'pkcs8', format: 'pem' }).toString()
+    } catch (e) {
+      lastError = e
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('应用私钥解析失败')
+}
+
+function normalizePublicKeyForNode(raw: string): string {
+  const candidates = toPemCandidates(raw, 'public')
+  let lastError: unknown = null
+  for (const candidate of candidates) {
+    try {
+      const parsed = createPublicKey(candidate)
+      return parsed.export({ type: 'spki', format: 'pem' }).toString()
+    } catch (e) {
+      lastError = e
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('支付宝公钥解析失败')
+}
+
 function mustEnv(key: string): string {
   const value = process.env[key]
   if (!value) throw new Error(`缺少环境变量 ${key}`)
@@ -61,26 +90,15 @@ let cachedClient: AlipaySdk | null = null
 export function getAlipayClient() {
   if (cachedClient) return cachedClient
   const cfg = getAlipayEnv()
-  const privateCandidates = toPemCandidates(cfg.privateKeyRaw, 'private')
-  const publicCandidates = toPemCandidates(cfg.alipayPublicKeyRaw, 'public')
-
-  let lastError: unknown = null
-  for (const privateKey of privateCandidates) {
-    for (const alipayPublicKey of publicCandidates) {
-      try {
-        cachedClient = new AlipaySdk({
-          appId: cfg.appId,
-          privateKey,
-          alipayPublicKey,
-          gateway: cfg.gateway,
-        })
-        return cachedClient
-      } catch (e) {
-        lastError = e
-      }
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error('支付宝密钥解析失败')
+  const privateKey = normalizePrivateKeyForNode(cfg.privateKeyRaw)
+  const alipayPublicKey = normalizePublicKeyForNode(cfg.alipayPublicKeyRaw)
+  cachedClient = new AlipaySdk({
+    appId: cfg.appId,
+    privateKey,
+    alipayPublicKey,
+    gateway: cfg.gateway,
+  })
+  return cachedClient
 }
 
 export function getAlipayUrls() {
