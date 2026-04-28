@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum VerifyChannel {
+  phone
+  email
+}
+
+enum VerifyPurpose {
+  login
+  register
+}
+
+enum PaymentOrderStatus {
+  PENDING
+  PAID
+  CLOSED
+  FAILED
+}
+
+enum PaymentChannel {
+  alipay_page
+}
+
+model User {
+  id           String   @id @default(cuid())
+  phone        String?  @unique
+  email        String?  @unique
+  passwordHash String?
+  memberExpiresAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions Session[]
+  paymentOrders PaymentOrder[]
+}
+
+model VerificationCode {
+  id          String        @id @default(cuid())
+  target      String
+  channel     VerifyChannel
+  purpose     VerifyPurpose
+  codeHash    String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  attempts    Int           @default(0)
+  createdAt   DateTime      @default(now())
+  requestedIp String?
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  userId      String
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  createdIp   String?
+  userAgent   String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PaymentOrder {
+  id          String             @id @default(cuid())
+  outTradeNo  String             @unique
+  userId      String?
+  planType    String
+  amount      Int
+  channel     PaymentChannel     @default(alipay_page)
+  status      PaymentOrderStatus @default(PENDING)
+  tradeNo     String?
+  paidAt      DateTime?
+  rawNotify   String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}

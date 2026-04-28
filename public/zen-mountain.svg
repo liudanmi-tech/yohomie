@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420" fill="none">
+  <defs>
+    <linearGradient id="m1" x1="0" y1="0" x2="0" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6B9080" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#6B9080" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2.2"/>
+    </filter>
+  </defs>
+  <!-- Hazy base -->
+  <rect x="0" y="0" width="900" height="420" fill="url(#m1)"/>
+  <!-- Minimal mountain lines -->
+  <path d="M40 330c120-90 210-150 330-150 104 0 165 48 240 110 56 46 126 84 250 90"
+        stroke="#4A6F62" stroke-opacity="0.22" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)"/>
+  <path d="M110 360c88-70 164-118 262-118 84 0 138 36 200 86 58 46 124 80 218 86"
+        stroke="#4A6F62" stroke-opacity="0.16" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)"/>
+  <path d="M220 385c62-50 120-84 186-84 60 0 102 24 146 56 44 32 100 58 180 62"
+        stroke="#4A6F62" stroke-opacity="0.12" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)"/>
+</svg>
