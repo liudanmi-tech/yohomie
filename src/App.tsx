@@ -37,6 +37,7 @@ type CreatePayResponse = {
   message?: string
   pageRedirectionData?: string
   payUrl?: string
+  qrCode?: string | null
 }
 
 /**
@@ -253,6 +254,7 @@ function App() {
   const [isPaying, setIsPaying] = useState(false)
   const [isPreparingAlipay, setIsPreparingAlipay] = useState(false)
   const [alipayPayUrl, setAlipayPayUrl] = useState('')
+  const [alipayQrCode, setAlipayQrCode] = useState('')
   const [alipayPrepareError, setAlipayPrepareError] = useState('')
   const [toastMessage, setToastMessage] = useState('')
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null)
@@ -362,6 +364,7 @@ function App() {
     setActivePlan(null)
     setPaymentMethod('alipay')
     setAlipayPayUrl('')
+    setAlipayQrCode('')
     setIsPreparingAlipay(false)
     setAlipayPrepareError('')
     setAgreed(false)
@@ -385,6 +388,7 @@ function App() {
       return null
     }
     setAlipayPayUrl(createData.payUrl)
+    setAlipayQrCode(createData.qrCode || '')
     setAlipayPrepareError('')
     return createData.payUrl
   }, [])
@@ -393,6 +397,7 @@ function App() {
     setActivePlan(plan)
     setPaymentMethod('alipay')
     setAlipayPayUrl('')
+    setAlipayQrCode('')
     setAlipayPrepareError('')
     setAgreed(false)
     setIsPaying(false)
@@ -1003,15 +1008,17 @@ function App() {
             </div>
 
             <div className="mt-5 flex flex-col items-center">
-              <p className="text-xs text-stone-500">支付宝扫码支付</p>
+              <p className="text-xs text-stone-500">支付宝扫码支付（当面付）</p>
               <div className="mt-2 rounded-2xl border border-sage/25 bg-sage/5 p-2">
                 {isPreparingAlipay ? (
                   <div className="flex h-[150px] w-[150px] items-center justify-center rounded-lg bg-white text-xs text-stone-500">
                     正在生成支付二维码...
                   </div>
-                ) : alipayPayUrl ? (
+                ) : alipayQrCode || alipayPayUrl ? (
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(alipayPayUrl)}&color=1677FF`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+                      alipayQrCode || alipayPayUrl,
+                    )}&color=1677FF`}
                     alt="支付宝订单二维码"
                     width={150}
                     height={150}
@@ -1028,6 +1035,11 @@ function App() {
                   </div>
                 )}
               </div>
+              {!isPreparingAlipay && !alipayQrCode && alipayPayUrl ? (
+                <p className="mt-2 max-w-[240px] text-center text-[11px] leading-relaxed text-stone-500">
+                  当前未返回可扫码的当面付二维码，将使用网页收银台链接生成二维码；如支付宝扫码提示不支持，请点击下方按钮跳转支付。
+                </p>
+              ) : null}
             </div>
 
             <label className="mt-5 flex items-start gap-2 text-sm text-stone-600">

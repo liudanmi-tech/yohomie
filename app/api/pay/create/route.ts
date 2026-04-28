@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
     }
     let pageRedirectionData = ''
     let payUrl = ''
+    let qrCode: string | null = null
     try {
       pageRedirectionData = (await alipay.pageExec('alipay.trade.page.pay', {
         method: 'POST',
@@ -91,6 +92,23 @@ export async function POST(req: NextRequest) {
         method: 'GET',
         ...payRequest,
       })) as string
+
+      // 扫码支付（当面付）需要 alipay.trade.precreate 返回的 qr_code
+      // 如果该能力未开通或调用失败，不影响网页收银台支付。
+      const precreateResp = (await alipay.exec('alipay.trade.precreate', {
+        notify_url: urls.notifyUrl,
+        bizContent: {
+          out_trade_no: outTradeNo,
+          total_amount: amountText,
+          subject: planTitle(planType),
+          passback_params: passbackParams,
+        },
+      })) as any
+      qrCode =
+        precreateResp?.qr_code ||
+        precreateResp?.alipay_trade_precreate_response?.qr_code ||
+        precreateResp?.alipay_trade_precreate_response?.qrCode ||
+        null
     } catch (e) {
       return NextResponse.json(
         { ok: false, message: `创建支付订单失败：${safeMessage(e)}` },
@@ -103,6 +121,7 @@ export async function POST(req: NextRequest) {
       outTradeNo,
       pageRedirectionData,
       payUrl,
+      qrCode,
     })
   } catch (error) {
     console.error('create alipay order failed:', error)
