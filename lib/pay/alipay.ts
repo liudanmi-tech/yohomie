@@ -2,8 +2,8 @@ import { AlipaySdk } from 'alipay-sdk'
 
 type AlipayEnv = {
   appId: string
-  privateKey: string
-  alipayPublicKey: string
+  privateKeyRaw: string
+  alipayPublicKeyRaw: string
   gateway: string
   notifyUrl: string
   returnUrl: string
@@ -11,15 +11,32 @@ type AlipayEnv = {
 
 function normalizeKeyInput(key: string): string {
   // systemd EnvironmentFile 场景下，用户常用 \n 写在一行；这里把字面量转为真实换行
-  return key.trim().replace(/\\n/g, '\n')
+  let v = key.trim().replace(/\\n/g, '\n')
+  // 兼容值被单双引号整体包裹的情况
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1).trim()
+  }
+  return v
 }
 
-function toPem(key: string, kind: 'PRIVATE KEY' | 'PUBLIC KEY'): string {
+function toPem(key: string, kind: string): string {
   const trimmed = normalizeKeyInput(key)
   if (trimmed.includes('BEGIN ') && trimmed.includes('END ')) return trimmed
   const base = trimmed.replace(/\s+/g, '')
   const wrapped = base.replace(/(.{64})/g, '$1\n')
   return `-----BEGIN ${kind}-----\n${wrapped}\n-----END ${kind}-----`
+}
+
+function toPemCandidates(key: string, keyType: 'private' | 'public'): string[] {
+  const normalized = normalizeKeyInput(key)
+  if (normalized.includes('BEGIN ') && normalized.includes('END ')) return [normalized]
+  if (keyType === 'private') {
+    return [toPem(normalized, 'PRIVATE KEY'), toPem(normalized, 'RSA PRIVATE KEY')]
+  }
+  return [toPem(normalized, 'PUBLIC KEY'), toPem(normalized, 'RSA PUBLIC KEY')]
 }
 
 function mustEnv(key: string): string {
@@ -31,8 +48,8 @@ function mustEnv(key: string): string {
 function getAlipayEnv(): AlipayEnv {
   return {
     appId: mustEnv('ALIPAY_APP_ID'),
-    privateKey: toPem(mustEnv('ALIPAY_PRIVATE_KEY'), 'PRIVATE KEY'),
-    alipayPublicKey: toPem(mustEnv('ALIPAY_PUBLIC_KEY'), 'PUBLIC KEY'),
+    privateKeyRaw: mustEnv('ALIPAY_PRIVATE_KEY'),
+    alipayPublicKeyRaw: mustEnv('ALIPAY_PUBLIC_KEY'),
     gateway: process.env.ALIPAY_GATEWAY || 'https://openapi.alipay.com/gateway.do',
     notifyUrl: mustEnv('ALIPAY_NOTIFY_URL'),
     returnUrl: mustEnv('ALIPAY_RETURN_URL'),
@@ -44,13 +61,26 @@ let cachedClient: AlipaySdk | null = null
 export function getAlipayClient() {
   if (cachedClient) return cachedClient
   const cfg = getAlipayEnv()
-  cachedClient = new AlipaySdk({
-    appId: cfg.appId,
-    privateKey: cfg.privateKey,
-    alipayPublicKey: cfg.alipayPublicKey,
-    gateway: cfg.gateway,
-  })
-  return cachedClient
+  const privateCandidates = toPemCandidates(cfg.privateKeyRaw, 'private')
+  const publicCandidates = toPemCandidates(cfg.alipayPublicKeyRaw, 'public')
+
+  let lastError: unknown = null
+  for (const privateKey of privateCandidates) {
+    for (const alipayPublicKey of publicCandidates) {
+      try {
+        cachedClient = new AlipaySdk({
+          appId: cfg.appId,
+          privateKey,
+          alipayPublicKey,
+          gateway: cfg.gateway,
+        })
+        return cachedClient
+      } catch (e) {
+        lastError = e
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('支付宝密钥解析失败')
 }
 
 export function getAlipayUrls() {
