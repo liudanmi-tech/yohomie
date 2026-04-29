@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getAuthedUser } from '@/lib/auth/session'
-import { getAlipayClient, getAlipayUrls } from '@/lib/pay/alipay'
+import { getAlipayClient, getAlipayOrderUrls, getAlipayUrls } from '@/lib/pay/alipay'
 import { normalizePlanType, planAmount, planTitle } from '@/lib/pay/plans'
 
 type CreatePayBody = {
@@ -33,6 +33,14 @@ function safeMessage(err: unknown): string {
     .slice(0, 240)
 }
 
+type JavaCreatePayResponse = {
+  ok?: boolean
+  payUrl?: string
+  message?: string
+  pageRedirectionData?: string
+  qrCode?: string | null
+}
+
 export async function POST(req: NextRequest) {
   const user = await getAuthedUser()
 
@@ -55,6 +63,65 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    const passbackParams = encodeURIComponent(
+      JSON.stringify({ userId: user?.id ?? null, planType, outTradeNo }),
+    )
+
+    const javaBase = (process.env.PAY_JAVA_BASE_URL || '').trim().replace(/\/$/, '')
+    if (javaBase) {
+      let orderUrls: { notifyUrl: string; returnUrl: string }
+      try {
+        orderUrls = getAlipayOrderUrls()
+      } catch (e) {
+        return NextResponse.json(
+          { ok: false, message: `支付配置异常：${safeMessage(e)}` },
+          { status: 500 },
+        )
+      }
+
+      const javaCreateUrl = `${javaBase}/pay/create`
+      try {
+        const javaResp = await fetch(javaCreateUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            outTradeNo,
+            planType,
+            totalAmount: amountText,
+            amount: amountText,
+            subject: planTitle(planType),
+            notifyUrl: orderUrls.notifyUrl,
+            returnUrl: `${orderUrls.returnUrl}?out_trade_no=${outTradeNo}`,
+            passbackParams,
+          }),
+          signal: AbortSignal.timeout(45_000),
+        })
+        const javaData = (await javaResp.json().catch(() => ({}))) as JavaCreatePayResponse
+        if (!javaResp.ok || !javaData.payUrl) {
+          const msg =
+            javaData.message ||
+            (javaResp.ok ? '支付服务未返回收银台地址' : `支付服务返回 HTTP ${javaResp.status}`)
+          return NextResponse.json(
+            { ok: false, message: msg },
+            { status: javaResp.ok ? 502 : javaResp.status >= 400 ? javaResp.status : 502 },
+          )
+        }
+        return NextResponse.json({
+          ok: true,
+          outTradeNo,
+          pageRedirectionData: javaData.pageRedirectionData ?? '',
+          payUrl: javaData.payUrl,
+          qrCode: javaData.qrCode ?? null,
+        })
+      } catch (e) {
+        console.error('java pay create failed:', e)
+        return NextResponse.json(
+          { ok: false, message: `创建支付订单失败：${safeMessage(e)}` },
+          { status: 502 },
+        )
+      }
+    }
+
     let alipay: ReturnType<typeof getAlipayClient>
     let urls: ReturnType<typeof getAlipayUrls>
     try {
@@ -66,9 +133,6 @@ export async function POST(req: NextRequest) {
         { status: 500 },
       )
     }
-    const passbackParams = encodeURIComponent(
-      JSON.stringify({ userId: user?.id ?? null, planType, outTradeNo }),
-    )
     const payRequest = {
       notify_url: urls.notifyUrl,
       return_url: `${urls.returnUrl}?out_trade_no=${outTradeNo}`,

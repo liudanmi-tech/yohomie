@@ -74,6 +74,14 @@ function mustEnv(key: string): string {
   return value
 }
 
+/** 仅组装回调地址（走 Java 签名服务时不需要在 Node 加载私钥） */
+export function getAlipayOrderUrls(): { notifyUrl: string; returnUrl: string } {
+  return {
+    notifyUrl: mustEnv('ALIPAY_NOTIFY_URL'),
+    returnUrl: mustEnv('ALIPAY_RETURN_URL'),
+  }
+}
+
 function getAlipayEnv(): AlipayEnv {
   return {
     appId: mustEnv('ALIPAY_APP_ID'),
