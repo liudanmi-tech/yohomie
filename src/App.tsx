@@ -371,12 +371,8 @@ function App() {
 
   const handleSubscribe = useCallback(
     async (plan: PricingPlan) => {
-      if (authLoading || isPayRedirecting) return
-      if (!sessionUser) {
-        window.location.href = `/login?redirect=${encodeURIComponent('/#pricing')}`
-        return
-      }
-      if (sessionUser.isMember || isDemoMemberActive(demoMemberExpiresAt)) {
+      if (isPayRedirecting) return
+      if (sessionUser?.isMember || isDemoMemberActive(demoMemberExpiresAt)) {
         setToastMessage('你已是会员用户，无需重复订阅')
         window.setTimeout(() => setToastMessage(''), 4200)
         return
@@ -394,7 +390,7 @@ function App() {
         setIsPayRedirecting(false)
       }
     },
-    [authLoading, demoMemberExpiresAt, fetchAlipayPayUrl, isPayRedirecting, sessionUser],
+    [demoMemberExpiresAt, fetchAlipayPayUrl, isPayRedirecting, sessionUser],
   )
 
   return (
@@ -748,7 +744,7 @@ function App() {
                     </p>
                     <button
                       type="button"
-                      disabled={authLoading || isPayRedirecting}
+                      disabled={isPayRedirecting}
                       onClick={() => void handleSubscribe(plan)}
                       className="shrink-0 rounded-full border border-sage/50 bg-sage-dark px-4 py-2 text-sm font-medium text-white shadow-sm transition enabled:hover:bg-sage disabled:cursor-not-allowed disabled:bg-stone-300"
                     >
