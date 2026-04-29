@@ -194,8 +194,6 @@ const PRICING_PLANS = [
 ] as const
 
 type PricingPlan = (typeof PRICING_PLANS)[number]
-type PaymentMethod = 'alipay'
-
 const SKILLS = [
   {
     title: '职场情绪管理案例专栏',
@@ -248,14 +246,7 @@ const SERVICE_FLOW_STEPS = [
 ] as const
 
 function App() {
-  const [activePlan, setActivePlan] = useState<PricingPlan | null>(null)
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('alipay')
-  const [agreed, setAgreed] = useState(false)
-  const [isPaying, setIsPaying] = useState(false)
-  const [isPreparingAlipay, setIsPreparingAlipay] = useState(false)
-  const [alipayPayUrl, setAlipayPayUrl] = useState('')
-  const [alipayQrCode, setAlipayQrCode] = useState('')
-  const [alipayPrepareError, setAlipayPrepareError] = useState('')
+  const [isPayRedirecting, setIsPayRedirecting] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null)
   const [demoMemberExpiresAt, setDemoMemberExpiresAt] = useState<string | null>(null)
@@ -359,18 +350,7 @@ function App() {
     }
   }
 
-  const closePaymentModal = () => {
-    if (isPaying) return
-    setActivePlan(null)
-    setPaymentMethod('alipay')
-    setAlipayPayUrl('')
-    setAlipayQrCode('')
-    setIsPreparingAlipay(false)
-    setAlipayPrepareError('')
-    setAgreed(false)
-  }
-
-  const createAlipayOrder = useCallback(async (plan: PricingPlan): Promise<string | null> => {
+  const fetchAlipayPayUrl = useCallback(async (plan: PricingPlan): Promise<string | null> => {
     const planType = plan.period === '/年' ? 'year' : 'month'
     const amount = planType === 'year' ? '268.00' : '29.00'
     const createResp = await fetch('/api/pay/create', {
@@ -382,47 +362,40 @@ function App() {
     const createData = (await createResp.json().catch(() => ({}))) as CreatePayResponse
     if (!createResp.ok || !createData.payUrl) {
       const msg = createData.message || '创建支付订单失败，请稍后重试'
-      setAlipayPrepareError(msg)
       setToastMessage(msg)
       window.setTimeout(() => setToastMessage(''), 4200)
       return null
     }
-    setAlipayPayUrl(createData.payUrl)
-    setAlipayQrCode(createData.qrCode || '')
-    setAlipayPrepareError('')
     return createData.payUrl
   }, [])
 
-  const handleSubscribe = (plan: PricingPlan) => {
-    setActivePlan(plan)
-    setPaymentMethod('alipay')
-    setAlipayPayUrl('')
-    setAlipayQrCode('')
-    setAlipayPrepareError('')
-    setAgreed(false)
-    setIsPaying(false)
-  }
+  const handleSubscribe = useCallback(
+    async (plan: PricingPlan) => {
+      if (authLoading || isPayRedirecting) return
+      if (!sessionUser) {
+        window.location.href = `/login?redirect=${encodeURIComponent('/#pricing')}`
+        return
+      }
+      if (sessionUser.isMember || isDemoMemberActive(demoMemberExpiresAt)) {
+        setToastMessage('你已是会员用户，无需重复订阅')
+        window.setTimeout(() => setToastMessage(''), 4200)
+        return
+      }
 
-  useEffect(() => {
-    if (!activePlan) return
-    setIsPreparingAlipay(true)
-    void createAlipayOrder(activePlan).finally(() => setIsPreparingAlipay(false))
-  }, [activePlan, createAlipayOrder])
-
-  const handleConfirmPay = async () => {
-    if (!activePlan || !agreed || isPaying) return
-    setIsPaying(true)
-    try {
-      const payUrl = alipayPayUrl || (await createAlipayOrder(activePlan))
-      if (!payUrl) return
-      window.location.href = payUrl
-    } catch {
-      setToastMessage('会员开通失败，请稍后重试')
-      window.setTimeout(() => setToastMessage(''), 4200)
-    } finally {
-      setIsPaying(false)
-    }
-  }
+      setIsPayRedirecting(true)
+      try {
+        const payUrl = await fetchAlipayPayUrl(plan)
+        if (!payUrl) return
+        window.location.assign(payUrl)
+      } catch {
+        setToastMessage('会员开通失败，请稍后重试')
+        window.setTimeout(() => setToastMessage(''), 4200)
+      } finally {
+        setIsPayRedirecting(false)
+      }
+    },
+    [authLoading, demoMemberExpiresAt, fetchAlipayPayUrl, isPayRedirecting, sessionUser],
+  )
 
   return (
     <div className="flex min-h-screen flex-col text-warm-ink">
@@ -775,10 +748,11 @@ function App() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => handleSubscribe(plan)}
-                      className="shrink-0 rounded-full border border-sage/50 bg-sage-dark px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sage"
+                      disabled={authLoading || isPayRedirecting}
+                      onClick={() => void handleSubscribe(plan)}
+                      className="shrink-0 rounded-full border border-sage/50 bg-sage-dark px-4 py-2 text-sm font-medium text-white shadow-sm transition enabled:hover:bg-sage disabled:cursor-not-allowed disabled:bg-stone-300"
                     >
-                      订阅
+                      {isPayRedirecting ? '正在跳转…' : '订阅'}
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-sage-dark">{plan.tag}</p>
@@ -954,129 +928,17 @@ function App() {
         </div>
       </footer>
 
-      {activePlan ? (
+      {isPayRedirecting ? (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-stone-950/45 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="payment-title"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-stone-950/35 p-4 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
         >
-          <div className="w-full max-w-xl rounded-3xl border border-stone-200 bg-cream p-6 shadow-2xl md:p-7">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs tracking-wide text-stone-500">会员开通确认</p>
-                <h3 id="payment-title" className="mt-1 text-xl font-semibold text-warm-ink">
-                  YoHomie 会员订阅开通
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={closePaymentModal}
-                className="rounded-full border border-stone-200 bg-white px-3 py-1 text-sm text-stone-600 hover:bg-stone-50"
-              >
-                关闭
-              </button>
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-stone-200 bg-white/80 p-4">
-              <p className="text-xs text-stone-500">订阅信息</p>
-              <p className="mt-2 text-base font-medium text-warm-ink">
-                会员等级：{activePlan.name}
-              </p>
-              <p className="mt-1 text-sm text-stone-700">
-                付费价格：{activePlan.price}
-                {activePlan.period}
-              </p>
-              <p className="mt-1 text-sm text-stone-700">
-                收款方：北京有厚米科技有限公司
-              </p>
-            </div>
-
-            <div className="mt-5">
-              <p className="text-sm font-medium text-stone-700">支付方式</p>
-              <div className="mt-3">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-xl border border-sage bg-sage/10 px-3 py-2 text-sm text-sage-dark"
-                >
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[#1677FF]/15 text-[#1677FF]">
-                    支
-                  </span>
-                  支付宝（网页收银台）
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-col items-center">
-              <p className="text-xs text-stone-500">支付宝扫码支付（当面付）</p>
-              <div className="mt-2 rounded-2xl border border-sage/25 bg-sage/5 p-2">
-                {isPreparingAlipay ? (
-                  <div className="flex h-[150px] w-[150px] items-center justify-center rounded-lg bg-white text-xs text-stone-500">
-                    正在生成支付二维码...
-                  </div>
-                ) : alipayQrCode || alipayPayUrl ? (
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-                      alipayQrCode || alipayPayUrl,
-                    )}&color=1677FF`}
-                    alt="支付宝订单二维码"
-                    width={150}
-                    height={150}
-                    className="rounded-lg"
-                  />
-                ) : (
-                  <div className="flex h-[150px] w-[150px] flex-col items-center justify-center gap-2 rounded-lg bg-white px-2 text-center text-xs text-stone-500">
-                    <span>支付链接生成失败</span>
-                    {alipayPrepareError ? (
-                      <span className="line-clamp-3 text-[11px] text-stone-400">{alipayPrepareError}</span>
-                    ) : (
-                      <span className="text-[11px] text-stone-400">请稍后重试</span>
-                    )}
-                  </div>
-                )}
-              </div>
-              {!isPreparingAlipay && !alipayQrCode && alipayPayUrl ? (
-                <p className="mt-2 max-w-[240px] text-center text-[11px] leading-relaxed text-stone-500">
-                  当前未返回可扫码的当面付二维码，将使用网页收银台链接生成二维码；如支付宝扫码提示不支持，请点击下方按钮跳转支付。
-                </p>
-              ) : null}
-            </div>
-
-            <label className="mt-5 flex items-start gap-2 text-sm text-stone-600">
-              <input
-                type="checkbox"
-                checked={agreed}
-                onChange={(e) => setAgreed(e.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-stone-300 text-sage focus:ring-sage"
-              />
-              <span>
-                我已阅读并同意
-                <a href="/terms" className="mx-1 text-sage-dark underline-offset-2 hover:underline">
-                  《用户服务协议》
-                </a>
-                和
-                <a href="/privacy" className="ml-1 text-sage-dark underline-offset-2 hover:underline">
-                  《隐私政策》
-                </a>
-                。
-              </span>
-            </label>
-
-            <button
-              type="button"
-              disabled={!agreed || isPaying || isPreparingAlipay}
-              onClick={(e) => {
-                e.preventDefault()
-                void handleConfirmPay()
-              }}
-              className="mt-5 w-full rounded-xl bg-sage-dark px-4 py-3 text-sm font-medium text-white transition enabled:hover:bg-sage disabled:cursor-not-allowed disabled:bg-stone-300"
-            >
-              {isPreparingAlipay
-                ? '正在生成订单...'
-                : isPaying
-                  ? '正在跳转支付宝收银台…'
-                  : '前往支付宝支付'}
-            </button>
+          <div className="w-full max-w-md rounded-3xl border border-stone-200 bg-cream p-6 text-center shadow-2xl md:p-7">
+            <p className="text-sm font-medium text-warm-ink">正在为你跳转支付宝收银台</p>
+            <p className="mt-2 text-xs leading-relaxed text-stone-600">
+              如长时间未跳转，请检查网络后重试，或刷新页面再次点击「订阅」。
+            </p>
           </div>
         </div>
       ) : null}
